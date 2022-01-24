@@ -8,6 +8,7 @@ export * from "./Table";
 export * from "./Topic";
 export * from "./Bucket";
 export * from "./Script";
+export * from "./EdgeFunction";
 export * from "./EventBus";
 export * from "./Function";
 export * from "./ApolloApi";
