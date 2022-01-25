@@ -1,29 +1,30 @@
-import { CloudFormationCustomResourceEvent } from 'aws-lambda'
-import { customAlphabet } from 'nanoid'
+const util = require('util')
+const AWS = require('aws-sdk')
 
-const { SUFFIX } = process.env
-const nanoid = customAlphabet('abcdefghijklmnopqrstuvwxyz1234567890', 10)
+const events = new AWS.CloudWatchEvents({apiVersion: '2015-10-07'});
 
-const onEvent = async (event: CloudFormationCustomResourceEvent) => {
-  console.log('lambda.js: onEvent', event)
-  const { EdgeFunctionArn } = event.ResourceProperties
-  if (!EdgeFunctionArn) throw new Error('Envs Missing!')
+const { CronRuleName } = process.env
+
+const onEvent = async (event) => {
+  console.log(util.inspect({ event }, { depth: null }))
+
+  if (!CronRuleName) throw new Error('Envs Missing!')
 
   const Data = {}
 
   const requestType = event['RequestType']
 
-  console.log({ requestType, EdgeFunctionArn })
+  console.log({ requestType, CronRuleName })
 
   if (requestType === 'Create') {
-    const PhysicalResourceId = EdgeFunctionArn
+    const PhysicalResourceId = CronRuleName
     console.log('-- Create --')
     return { PhysicalResourceId, Data }
     //
     //
   } else if (requestType === 'Update') {
     const oldPhysicalResourceId = event.PhysicalResourceId
-    const newPhysicalResourceId = EdgeFunctionArn
+    const newPhysicalResourceId = CronRuleName
     console.log('-- Update --', { oldPhysicalResourceId, newPhysicalResourceId })
     return { PhysicalResourceId: newPhysicalResourceId, Data }
     //
@@ -32,7 +33,8 @@ const onEvent = async (event: CloudFormationCustomResourceEvent) => {
     const { PhysicalResourceId } = event
     console.log('-- Delete --', PhysicalResourceId)
 
-    // create eventBridgeCron for EdgeFunctionArn
+    const resp = await enableRule(CronRuleName)
+    console.log(util.inspect({ resp }, { depth: null }))
 
     return { PhysicalResourceId, Data }
     //
@@ -42,4 +44,7 @@ const onEvent = async (event: CloudFormationCustomResourceEvent) => {
   }
 }
 
-export { onEvent }
+const enableRule = (Name) => 
+  events.enableRule({ Name }).promise()
+
+module.exports = { onEvent }

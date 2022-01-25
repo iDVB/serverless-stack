@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../stacks/index.js", "../../stacks/MyStack.js"],
-  "sourcesContent": ["import MyStack from \"./MyStack\";\n\nexport default function main(app) {\n  // Set default runtime for all functions\n  app.setDefaultFunctionProps({\n    runtime: \"nodejs14.x\",\n  });\n\n  new MyStack(app, \"my-stack\");\n}\n", "import * as s3 from 'aws-cdk-lib/aws-s3'\nimport * as sst from \"@serverless-stack/resources\";\n// import { Distribution } from \"aws-cdk-lib/aws-cloudfront\";\n\nexport default class MyStack extends sst.Stack {\n  constructor(scope, id, props) {\n    super(scope, id, props);\n\n    const bucket = new s3.Bucket(this, 'TestBucket')\n\n    new sst.EdgeFunction(this, 'EdgeFunction', {\n      handler:  'src/lambda-stub.handler',\n      distribution: bucket,\n    })\n  }\n}\n"],
-  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;AAAA;AAAA;AAAA;AAAA;;;ACAA,SAAoB;AACpB,UAAqB;AAGrB,4BAAyC,UAAM;AAAA,EAC7C,YAAY,OAAO,IAAI,OAAO;AAC5B,UAAM,OAAO,IAAI;AAEjB,UAAM,SAAS,IAAO,UAAO,MAAM;AAEnC,QAAQ,iBAAa,MAAM,gBAAgB;AAAA,MACzC,SAAU;AAAA,MACV,cAAc;AAAA;AAAA;AAAA;;;ADVL,cAAc,KAAK;AAEhC,MAAI,wBAAwB;AAAA,IAC1B,SAAS;AAAA;AAGX,MAAI,QAAQ,KAAK;AAAA;",
-  "names": []
-}

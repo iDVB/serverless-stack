@@ -1,1 +1,0 @@
-{"name":"edge-function","region":"us-east-1","main":"stacks/index.js","stage":"test","lint":true,"typeCheck":true}
