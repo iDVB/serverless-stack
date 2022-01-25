@@ -23,8 +23,6 @@ export class EdgeFunction extends Function {
     super(scope, id, props)
 
     const { region, account } = cdk.Stack.of(this) as cdk.Stack
-
-    this.applyRemovalPolicy(cdk.RemovalPolicy.RETAIN)
     
     const roleCleanupName = this.getUniqueName('RoleCleanup')
     const roleCleanup = new iam.Role(this, 'RoleCleanup', {
@@ -36,7 +34,6 @@ export class EdgeFunction extends Function {
         ),
       ],
     })
-    roleCleanup.applyRemovalPolicy(cdk.RemovalPolicy.RETAIN)
 
     const cronCleanupName = this.getUniqueName('RuleCronCleanup')
     const cronCleanupArn = `arn:aws:events:${region}:${account}:rule/${cronCleanupName}`
@@ -51,18 +48,16 @@ export class EdgeFunction extends Function {
       logRetention: logs.RetentionDays.ONE_DAY,
       environment: { 
         EdgeFunctionArn: this.functionArn, 
-        FunctionRoleArn: roleCleanup.roleArn,
+        FunctionRoleName: roleCleanupName,
         EventRuleName: cronCleanupName,
       },
     })
-    lambdaCleanup.applyRemovalPolicy(cdk.RemovalPolicy.RETAIN)
 
     const cronCleanup = new events.Rule(this, 'RuleCronCleanup', {
       ruleName: cronCleanupName,
       schedule: events.Schedule.rate(cdk.Duration.minutes(1)),
       enabled: false,
     })
-    cronCleanup.applyRemovalPolicy(cdk.RemovalPolicy.RETAIN)
     cronCleanup.addTarget(new eventsTargets.LambdaFunction(lambdaCleanup))
 
     const lambdaPermissionId = 'EventInvokeLambda'
@@ -70,9 +65,7 @@ export class EdgeFunction extends Function {
       principal: new iam.ServicePrincipal('events.amazonaws.com'),
       sourceArn: cronCleanup.ruleArn
     });
-    const permission = lambdaCleanup.permissionsNode.tryFindChild(lambdaPermissionId) as lambda.CfnPermission;
-    permission.applyRemovalPolicy(cdk.RemovalPolicy.RETAIN)
-
+    const permission = lambdaCleanup.permissionsNode.tryFindChild(lambdaPermissionId) as cdk.IResource;
     const roleCleanupPolicy = new iam.Policy(this, 'RoleCleanupPolicy', {
       statements: [
         // PERMISSION: Can DELETE EdgeLambda and itself
@@ -87,21 +80,39 @@ export class EdgeFunction extends Function {
         // PERMISSION: Can DELETE the CronRule
         new iam.PolicyStatement({
           effect: iam.Effect.ALLOW,
-          actions: ['events:DeleteRule'],
+          actions: [
+            'events:DeleteRule', 
+            'events:ListTargetsByRule', 
+            'events:RemoveTargets'
+          ],
           resources: [ cronCleanupArn ],
         }),
         // PERMISSION: Can DELETE it's own role
         new iam.PolicyStatement({
           effect: iam.Effect.ALLOW,
-          actions: ['iam:DeleteRole'],
+          actions: [
+            'iam:DeleteRole',
+            'iam:DetachRolePolicy',
+            'iam:ListRolePolicies',
+            'iam:DeleteRolePolicy',
+            'iam:ListAttachedRolePolicies',
+          ],
           resources: [
-            `arn:aws:iam::${account}:role/aws/${roleCleanupName}`,
+            `arn:aws:iam::${account}:role/${roleCleanupName}`,
           ],
         }),
       ],
     })
-    roleCleanupPolicy.applyRemovalPolicy(cdk.RemovalPolicy.RETAIN)
     roleCleanup.attachInlinePolicy(roleCleanupPolicy);
+
+    this.applyRemovalPolicies([
+      this, 
+      roleCleanup,   // deleted by lambdaCleanup
+      lambdaCleanup, // deleted by lambdaCleanup
+      cronCleanup,   // deleted by lambdaCleanup
+      permission,    // Attached to lambdaCleanup
+      roleCleanupPolicy // Attached to roleCleanup
+    ], cdk.RemovalPolicy.RETAIN)
 
     // Create CR that will enable cronCleanup once distro is changed/deleted
     const lambdaCronInitiator = new lambda.Function(this, 'LambdaCronInitiator', {
@@ -129,6 +140,11 @@ export class EdgeFunction extends Function {
     })
 
     crCronInitiator.node.addDependency(this)
+  }
+
+  private applyRemovalPolicies(resources: cdk.IResource[], removalPolicy: cdk.RemovalPolicy) {
+    resources.forEach(resource => resource.applyRemovalPolicy(removalPolicy));
+    return 
   }
 
   // test-edge-function-my-stack-RoleCleanup-zph6n0jtzi

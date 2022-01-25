@@ -5,12 +5,12 @@ const lambda = new AWS.Lambda({apiVersion: '2015-03-31'});
 const iam = new AWS.IAM({apiVersion: '2010-05-08'});
 const events = new AWS.CloudWatchEvents({apiVersion: '2015-10-07'});
 
-const { EdgeFunctionArn, FunctionRoleArn, EventRuleName } = process.env
+const { EdgeFunctionArn, FunctionRoleName, EventRuleName } = process.env
 
 const handler = async (event, context) => {
   console.log(util.inspect({ event }, { depth: null }))
 
-  if (!EdgeFunctionArn || !FunctionRoleArn || !EventRuleName) throw new Error('Env vars missing')
+  if (!EdgeFunctionArn || !FunctionRoleName || !EventRuleName) throw new Error('Env vars missing')
   
   const thisFunctionName = context.functionName
 
@@ -21,16 +21,22 @@ const handler = async (event, context) => {
     await deleteEventRule(EventRuleName)
     console.log(`Attempting to deleteFunction: ${thisFunctionName}`)
     await deleteFunction(thisFunctionName)
-    console.log(`Attempting to deleteRole: ${FunctionRoleArn}`)
-    await deleteRole(FunctionRoleArn)
+    console.log(`Attempting to deleteRole: ${FunctionRoleName}`)
+    await deleteRole(FunctionRoleName)
     console.log('COMPLETED all deletions')
   }
 
   return
 }
 
-const deleteEventRule = (Name) => 
-  events.deleteRule({ Name }).promise()
+const deleteEventRule = async (Rule) => {
+  const { Targets } = await events.listTargetsByRule({ Rule }).promise()
+  console.log(util.inspect({ Targets }, { depth: null }))
+
+  const Ids = Targets.map((target) => target.Id)
+  await events.removeTargets({ Ids, Rule }).promise()
+  await events.deleteRule({ Name: Rule }).promise()
+}
 
 const deleteFunction = async (FunctionName) => {
   let deleteStatus
@@ -49,10 +55,33 @@ const deleteFunction = async (FunctionName) => {
   return deleteStatus
 }
 
-const deleteRole = (RoleName) => 
-  iam.deleteRole({
-    RoleName,
-  }).promise()
+const deleteRole = async (RoleName) => {
+
+  // Detach ManagedPolicies
+  const { AttachedPolicies } = await iam.listAttachedRolePolicies({ RoleName }).promise()
+  console.log(util.inspect({ AttachedPolicies }, { depth: null }))
+
+  const promises = []
+  AttachedPolicies.forEach(({ PolicyArn })=> {
+    console.log(`Detaching Managed Policy: ${PolicyArn}`)
+    promises.push(iam.detachRolePolicy({ PolicyArn, RoleName }).promise())
+  })
+
+  // Delete InlinePolices
+  const { PolicyNames } = await iam.listRolePolicies({ RoleName }).promise()
+  console.log(util.inspect({ PolicyNames }, { depth: null }))
+
+  PolicyNames.forEach(( PolicyName )=> {
+    console.log(`Deleting Inline Policy: ${PolicyName}`)
+    promises.push(iam.deleteRolePolicy({ PolicyName, RoleName }).promise())
+  })
+
+  await Promise.all(promises)
+  
+  await iam.deleteRole({ RoleName }).promise() 
+
+  return
+}
 
 
 
