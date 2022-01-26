@@ -42,18 +42,46 @@ const deleteFunction = async (FunctionName) => {
   let deleteStatus
 
   try {
-    const resp = await lambda.deleteFunction({
+    const deleteFunctionResp = await lambda.deleteFunction({
       FunctionName
     }).promise()
-    console.log(util.inspect({ resp }, { depth: null }))
+    console.log(util.inspect({ deleteFunctionResp }, { depth: null }))
     deleteStatus = true
-  } catch (error) {
-    console.log(util.inspect({ error }, { depth: null }))
+  } catch (deleteFunctionError) {
+    console.log(util.inspect({ deleteFunctionError }, { depth: null }))
     deleteStatus = false
+
+    const { code, statusCode } = deleteFunctionError
+    if (statusCode !== '400' || code === 'InvalidParameterValueException') {
+      throw new Error(deleteFunctionError)
+    }
+    else {
+      console.log('Replica Function Detected. Sleeping.')
+    }
   }
 
   return deleteStatus
 }
+// 2022-01-25T22:22:43.084Z	3cbaa9f3-cbd5-4188-9354-ac7cccd2184e	INFO	{
+//   deleteFunctionError: InvalidParameterValueException: Lambda was unable to delete arn:aws:lambda:us-east-1:104477223281:function:test-edge-function-my-stack-EdgeFunction71EFB7B6-3gAimmVa6yCc:1 because it is a replicated function. Please see our documentation for Deleting Lambda@Edge Functions and Replicas.
+//       at Object.extractError (/var/runtime/node_modules/aws-sdk/lib/protocol/json.js:52:27)
+//       at Request.extractError (/var/runtime/node_modules/aws-sdk/lib/protocol/rest_json.js:49:8)
+//       at Request.callListeners (/var/runtime/node_modules/aws-sdk/lib/sequential_executor.js:106:20)
+//       at Request.emit (/var/runtime/node_modules/aws-sdk/lib/sequential_executor.js:78:10)
+//       at Request.emit (/var/runtime/node_modules/aws-sdk/lib/request.js:686:14)
+//       at Request.transition (/var/runtime/node_modules/aws-sdk/lib/request.js:22:10)
+//       at AcceptorStateMachine.runTo (/var/runtime/node_modules/aws-sdk/lib/state_machine.js:14:12)
+//       at /var/runtime/node_modules/aws-sdk/lib/state_machine.js:26:10
+//       at Request.<anonymous> (/var/runtime/node_modules/aws-sdk/lib/request.js:38:9)
+//       at Request.<anonymous> (/var/runtime/node_modules/aws-sdk/lib/request.js:688:12) {
+//     code: 'InvalidParameterValueException',
+//     time: 2022-01-25T22:22:43.025Z,
+//     requestId: '1cade985-2198-427d-bd11-b9e3709024e0',
+//     statusCode: 400,
+//     retryable: false,
+//     retryDelay: 36.166511901113466
+//   }
+// }
 
 const deleteRole = async (RoleName) => {
 
@@ -62,7 +90,7 @@ const deleteRole = async (RoleName) => {
   console.log(util.inspect({ AttachedPolicies }, { depth: null }))
 
   const promises = []
-  AttachedPolicies.forEach(({ PolicyArn })=> {
+  AttachedPolicies.forEach(({ PolicyArn }) => {
     console.log(`Detaching Managed Policy: ${PolicyArn}`)
     promises.push(iam.detachRolePolicy({ PolicyArn, RoleName }).promise())
   })
@@ -71,7 +99,7 @@ const deleteRole = async (RoleName) => {
   const { PolicyNames } = await iam.listRolePolicies({ RoleName }).promise()
   console.log(util.inspect({ PolicyNames }, { depth: null }))
 
-  PolicyNames.forEach(( PolicyName )=> {
+  PolicyNames.forEach(( PolicyName ) => {
     console.log(`Deleting Inline Policy: ${PolicyName}`)
     promises.push(iam.deleteRolePolicy({ PolicyName, RoleName }).promise())
   })

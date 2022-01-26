@@ -55,7 +55,7 @@ export class EdgeFunction extends Function {
 
     const cronCleanup = new events.Rule(this, 'RuleCronCleanup', {
       ruleName: cronCleanupName,
-      schedule: events.Schedule.rate(cdk.Duration.minutes(1)),
+      schedule: events.Schedule.rate(cdk.Duration.hours(1)),
       enabled: false,
     })
     cronCleanup.addTarget(new eventsTargets.LambdaFunction(lambdaCleanup))
@@ -120,13 +120,13 @@ export class EdgeFunction extends Function {
       code: lambda.Code.fromAsset(path.join(__dirname, '../assets/EdgeLambda')),
       runtime: lambda.Runtime.NODEJS_14_X,
       logRetention: logs.RetentionDays.ONE_DAY,
-      environment: { CronRuleName: cronCleanup.ruleName },
+      environment: { CronRuleName: cronCleanupName },
     })
     lambdaCronInitiator.addToRolePolicy(
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
         actions: ['events:EnableRule'],
-        resources: [cronCleanup.ruleArn],
+        resources: [cronCleanupArn],
       }),
     )
     // Allow providerCronInitiator to invoke lambdaCleanup
@@ -139,7 +139,7 @@ export class EdgeFunction extends Function {
       serviceToken: providerCronInitiator.serviceToken,
     })
 
-    crCronInitiator.node.addDependency(this)
+    // this.addDependency(crCronInitiator)
   }
 
   private applyRemovalPolicies(resources: cdk.IResource[], removalPolicy: cdk.RemovalPolicy) {
