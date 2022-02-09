@@ -10,147 +10,127 @@ import { customAlphabet } from 'nanoid'
 import { Construct } from 'constructs'
 
 import {
-  Function,
-  FunctionProps,
-} from "./Function";
+  PermissionType,
+  Permissions,
+  attachPermissionsToRole,
+} from "./util/permission";
 
-const nanoid = customAlphabet('abcdefghijklmnopqrstuvwxyz1234567890', 10)
+import * as crossRegionHelper from "./edge-function/cross-region-helper";
 
-export class EdgeFunction extends Function {
+export type EdgeFunctionProps = lambda.FunctionProps 
 
-  constructor(scope: Construct, id: string, props: FunctionProps) {
+export class EdgeFunction extends cdk.Resource implements lambda.IVersion {
+  private readonly props: EdgeFunctionProps;
+  private static readonly EDGE_REGION: string = 'us-east-1';
 
-    super(scope, id, props)
+  public readonly edgeArn: string;
+  public readonly functionName: string;
+  public readonly functionArn: string;
+  public readonly grantPrincipal: iam.IPrincipal;
+  public readonly isBoundToVpc = false;
+  public readonly permissionsNode: ConstructNode;
+  public readonly role?: iam.IRole;
+  public readonly version: string;
+  public readonly architecture: lambda.Architecture;
 
-    const { region, account } = cdk.Stack.of(this) as cdk.Stack
+  private readonly _edgeFunction: lambda.Function;
+
+  constructor(scope: Construct, id: string, props: EdgeFunctionProps) {
+    super(scope, id)
+
+    const { edgeFunction, edgeArn } = this.createFunction(id, props);
     
-    const roleCleanupName = this.getUniqueName('RoleCleanup')
-    const roleCleanup = new iam.Role(this, 'RoleCleanup', {
-      roleName: roleCleanupName,
-      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
-      managedPolicies: [
-        iam.ManagedPolicy.fromAwsManagedPolicyName(
-          'service-role/AWSLambdaBasicExecutionRole',
-        ),
-      ],
-    })
+    this.edgeArn = edgeArn;
 
-    const cronCleanupName = this.getUniqueName('RuleCronCleanup')
-    const cronCleanupArn = `arn:aws:events:${region}:${account}:rule/${cronCleanupName}`
+    this.functionArn = edgeArn;
+    this._edgeFunction = edgeFunction;
+    this.functionName = this._edgeFunction.functionName;
+    this.grantPrincipal = this._edgeFunction.role!;
+    this.permissionsNode = this._edgeFunction.permissionsNode;
+    this.version = lambda.extractQualifierFromArn(this.functionArn);
+    this.architecture = this._edgeFunction.architecture;
 
-    const lambdaCleanupName = this.getUniqueName('LambdaCleanup')
-    const lambdaCleanup = new lambda.Function(this, 'LambdaCleanup', {
-      functionName: lambdaCleanupName,
-      handler: 'lambda-cleanup.handler',
-      role: roleCleanup,
-      code: lambda.Code.fromAsset(path.join(__dirname, '../assets/EdgeLambda')),
-      runtime: lambda.Runtime.NODEJS_14_X,
-      logRetention: logs.RetentionDays.ONE_DAY,
-      environment: { 
-        EdgeFunctionArn: this.functionArn, 
-        FunctionRoleName: roleCleanupName,
-        EventRuleName: cronCleanupName,
+    this.node.defaultChild = this._edgeFunction;
+  }
+
+  public get lambda(): lambda.IFunction {
+    return this._edgeFunction;
+  }
+
+  /**
+   * Convenience method to make `EdgeFunction` conform to the same interface as `Function`.
+   */
+  public get currentVersion(): lambda.IVersion {
+    return this;
+  }
+
+  public attachPermissions(permissions: Permissions): void {
+    if (this.role) {
+      attachPermissionsToRole(this.role as iam.Role, permissions);
+    }
+  }
+
+  public getConstructMetadata() {
+    return {
+      type: "NextSite" as const,
+      data: {
       },
-    })
-
-    const cronCleanup = new events.Rule(this, 'RuleCronCleanup', {
-      ruleName: cronCleanupName,
-      schedule: events.Schedule.rate(cdk.Duration.hours(1)),
-      enabled: false,
-    })
-    cronCleanup.addTarget(new eventsTargets.LambdaFunction(lambdaCleanup))
-
-    const lambdaPermissionId = 'EventInvokeLambda'
-    lambdaCleanup.addPermission(lambdaPermissionId, {
-      principal: new iam.ServicePrincipal('events.amazonaws.com'),
-      sourceArn: cronCleanup.ruleArn
-    });
-    const permission = lambdaCleanup.permissionsNode.tryFindChild(lambdaPermissionId) as cdk.IResource;
-    const roleCleanupPolicy = new iam.Policy(this, 'RoleCleanupPolicy', {
-      statements: [
-        // PERMISSION: Can DELETE EdgeLambda and itself
-        new iam.PolicyStatement({
-          effect: iam.Effect.ALLOW,
-          actions: ['lambda:DeleteFunction'],
-          resources: [
-            this.functionArn,
-            `arn:aws:lambda:${region}:${account}:function:${lambdaCleanupName}`, 
-          ],
-        }),
-        // PERMISSION: Can DELETE the CronRule
-        new iam.PolicyStatement({
-          effect: iam.Effect.ALLOW,
-          actions: [
-            'events:DeleteRule', 
-            'events:ListTargetsByRule', 
-            'events:RemoveTargets'
-          ],
-          resources: [ cronCleanupArn ],
-        }),
-        // PERMISSION: Can DELETE it's own role
-        new iam.PolicyStatement({
-          effect: iam.Effect.ALLOW,
-          actions: [
-            'iam:DeleteRole',
-            'iam:DetachRolePolicy',
-            'iam:ListRolePolicies',
-            'iam:DeleteRolePolicy',
-            'iam:ListAttachedRolePolicies',
-          ],
-          resources: [
-            `arn:aws:iam::${account}:role/${roleCleanupName}`,
-          ],
-        }),
-      ],
-    })
-    roleCleanup.attachInlinePolicy(roleCleanupPolicy);
-
-    this.applyRemovalPolicies([
-      this, 
-      roleCleanup,   // deleted by lambdaCleanup
-      lambdaCleanup, // deleted by lambdaCleanup
-      cronCleanup,   // deleted by lambdaCleanup
-      permission,    // Attached to lambdaCleanup
-      roleCleanupPolicy // Attached to roleCleanup
-    ], cdk.RemovalPolicy.RETAIN)
-
-    // Create CR that will enable cronCleanup once distro is changed/deleted
-    const lambdaCronInitiator = new lambda.Function(this, 'LambdaCronInitiator', {
-      handler: 'lambda-cron-initiator.onEvent',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../assets/EdgeLambda')),
-      runtime: lambda.Runtime.NODEJS_14_X,
-      logRetention: logs.RetentionDays.ONE_DAY,
-      environment: { CronRuleName: cronCleanupName },
-    })
-    lambdaCronInitiator.addToRolePolicy(
-      new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
-        actions: ['events:EnableRule'],
-        resources: [cronCleanupArn],
-      }),
-    )
-    // Allow providerCronInitiator to invoke lambdaCleanup
-    const providerCronInitiator = new cr.Provider(this, 'ProviderCronInitiator', {
-      onEventHandler: lambdaCronInitiator,
-      logRetention: logs.RetentionDays.ONE_DAY,
-    })
-
-    const crCronInitiator = new cdk.CustomResource(this, 'CustomResourceCronInitiator', {
-      serviceToken: providerCronInitiator.serviceToken,
-    })
-
-    // this.addDependency(crCronInitiator)
+    };
   }
 
-  private applyRemovalPolicies(resources: cdk.IResource[], removalPolicy: cdk.RemovalPolicy) {
-    resources.forEach(resource => resource.applyRemovalPolicy(removalPolicy));
-    return 
+  
+
+  private createFunction(
+    name: string,
+    assetPath: string,
+    asset: s3Assets.Asset,
+    hasRealCode: boolean
+  ): lambda.IVersion {
+    // If app region is NOT us-east-1, create a Function in us-east-1
+    // using a Custom Resource
+
+    // Create a S3 bucket in us-east-1 to store Lambda code. Create
+    // 1 bucket for all Edge functions.
+    const bucketCR = crossRegionHelper.getOrCreateBucket(this);
+    const bucketName = bucketCR.getAttString("BucketName");
+
+    // Create a Lambda function in us-east-1
+    const functionCR = crossRegionHelper.createFunction(
+      this,
+      name,
+      this.edgeLambdaRole,
+      bucketName,
+      {
+        Description: `handler for Next.js`,
+        Handler: "index.handler",
+        Code: {
+          S3Bucket: asset.s3BucketName,
+          S3Key: asset.s3ObjectKey,
+        },
+        Runtime: lambda.Runtime.NODEJS_12_X.name,
+        MemorySize: this.props?.memorySize || 512,
+        Timeout: cdk.Duration.seconds(this.props?.timeout || 10).toSeconds(),
+        Role: this.edgeLambdaRole.roleArn,
+      }
+    );
+    const functionArn = functionCR.getAttString("FunctionArn");
+
+    // Create a Lambda function version in us-east-1
+    const versionCR = crossRegionHelper.createVersion(this, name, functionArn);
+    const versionId = versionCR.getAttString("Version");
+    crossRegionHelper.updateVersionLogicalId(functionCR, versionCR);
+
+    // Deploy after the code is updated
+    if (hasRealCode) {
+      const updaterCR = this.createLambdaCodeReplacer(name, asset);
+      functionCR.node.addDependency(updaterCR);
+    }
+
+    return lambda.Version.fromVersionArn(
+      this,
+      `${name}FunctionVersion`,
+      `${functionArn}:${versionId}`
+    );
   }
 
-  // test-edge-function-my-stack-RoleCleanup-zph6n0jtzi
-  private getUniqueName(name: string) {
-    const { stackName } = cdk.Stack.of(this) as cdk.Stack
-    const hash = nanoid()
-    return `${stackName}-${name}-${hash}`
-  }
 }
