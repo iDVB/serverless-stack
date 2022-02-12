@@ -10,11 +10,7 @@ import crypto from "crypto";
 type Events =
   | { type: "FILE_CHANGE" }
   | { type: "TRIGGER_DEPLOY" }
-  | { type: "BUILD_SUCCESS" }
-  | {
-      type: "done.invoke.synth";
-      data: string;
-    };
+  | { type: "BUILD_SUCCESS" };
 
 type Context = {
   dirty: boolean;
@@ -211,9 +207,8 @@ export function useStacksBuilder(
   return service;
 }
 
-function isChanged(ctx: Context, evt: Events) {
-  if (evt.type === "done.invoke.synth") return evt.data !== ctx.deployedHash;
-  return false;
+function isChanged(ctx: Context, evt: any) {
+  return evt.data !== ctx.deployedHash;
 }
 
 function isDirty(ctx: Context) {
@@ -229,7 +224,8 @@ function generateChecksum(cdkOutPath: string) {
         cdkManifest.artifacts[key].type === "aws:cloudformation:stack"
     )
     .map((key: string) => {
-      const templatePath = path.join(cdkOutPath, `${key}.template.json`);
+      const { templateFile } = cdkManifest.artifacts[key].properties;
+      const templatePath = path.join(cdkOutPath, templateFile);
       const templateContent = fs.readFileSync(templatePath);
       return templateContent;
     })

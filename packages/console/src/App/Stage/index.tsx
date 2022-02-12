@@ -17,11 +17,8 @@ const Root = styled("div", {
   background: "$loContrast",
   display: "flex",
   flexDirection: "column",
-  position: "absolute",
-  left: "0",
-  right: "0",
-  top: "0",
-  bottom: "0",
+  position: "fixed",
+  inset: 0,
   color: "$hiContrast",
 });
 
@@ -49,7 +46,6 @@ export function Stage() {
     );
   return (
     <Root>
-      <Header />
       <Fill>
         <Panel />
         <Content>
@@ -70,6 +66,7 @@ export function Stage() {
 }
 
 function StacksToasts() {
+  const stacks = useStacks();
   const status = useRealtimeState((s) => s.stacks.status);
   const deploy = trpc.useMutation("deploy");
   const toast = Toast.use();
@@ -80,11 +77,13 @@ function StacksToasts() {
       skip.current = true;
       return;
     }
-    if (status.idle === "deployed")
+    if (status.idle === "deployed") {
       toast.create({
         type: "success",
         text: "Stacks deployed successfully",
       });
+      stacks.refetch();
+    }
 
     if (status.idle === "unchanged")
       toast.create({

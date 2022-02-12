@@ -1,7 +1,7 @@
 {
   "name": "@serverless-stack/console",
   "private": true,
-  "version": "0.59.1",
+  "version": "0.63.0",
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --noEmit",
@@ -28,6 +28,8 @@
     "@radix-ui/react-tooltip": "^0.1.6",
     "@react-hook/hotkey": "^3.1.0",
     "@stitches/react": "^1.2.6",
+    "@trpc/client": "9.18.0",
+    "@trpc/react": "9.18.0",
     "buffer": "^6.0.3",
     "dendriform-immer-patch-optimiser": "^2.1.0",
     "file-saver": "^2.0.5",

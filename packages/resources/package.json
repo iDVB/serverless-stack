@@ -1,12 +1,14 @@
 {
   "name": "@serverless-stack/resources",
-  "version": "0.59.1",
+  "version": "0.63.0",
   "homepage": "https://serverless-stack.com",
   "description": "Helper AWS CDK constructs for Serverless Stack apps.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc --rootDir src --outDir dist && cd assets/stub && yarn && cd ../.. && node ./bin/create-stub-zip.js && yarn build:bridge",
+    "build": "tsc --rootDir src --outDir dist && yarn build:stub && yarn build:rds-migrator && yarn build:bridge",
+    "build:stub": "cd assets/stub && yarn && cd ../.. && node ./bin/create-stub-zip.js",
+    "build:rds-migrator": "cd assets/RDS/migrator && yarn && cd ../../.. && node ./bin/copy-rds-migrator.js",
     "build:bridge": "node ./bin/build-bridge-client.js",
     "clean": "rm -rf dist",
     "prepare": "node ./bin/aws-cdk-version-check.js && yarn run build",
@@ -33,8 +35,7 @@
     "@aws-cdk/aws-appsync-alpha": "2.7.0-alpha.0",
     "@graphql-tools/load-files": "^6.3.2",
     "@graphql-tools/merge": "^6.2.14",
-    "@serverless-stack/core": "^0.59.1",
-    "@serverless-stack/nextjs-lambda": "^0.1.9",
+    "@serverless-stack/core": "^0.63.0",
     "@types/jest": "^26.0.7",
     "archiver": "^5.3.0",
     "aws-cdk-lib": "2.7.0",
@@ -53,10 +54,11 @@
     "zip-local": "^0.3.4"
   },
   "devDependencies": {
+    "@sls-next/lambda-at-edge": "^3.7.0-alpha.7",
     "@types/cross-spawn": "^6.0.2",
     "@types/fs-extra": "^9.0.6",
     "@types/node": "^14.0.27",
     "esbuild-runner": "^2.2.1"
   },
-  "gitHead": "5b79ddb145319bf1cf348f72d48e8371f3317e93"
+  "gitHead": "09f1e601a38a7fac1c161cfddd1435804cdcfb56"
 }

@@ -72,6 +72,7 @@ type Bundle = {
   };
   commandHooks?: ICommandHooks;
   minify?: boolean;
+  format?: "esm" | "cjs";
 };
 
 export const NodeHandler: Definition<Bundle> = (opts) => {
@@ -88,15 +89,20 @@ export const NodeHandler: Definition<Bundle> = (opts) => {
     throw new Error(`Cannot find a handler file for "${opts.handler}"`);
 
   const artifact = State.Function.artifactsPath(opts.root, opts.id);
-  const target = path.join(
-    artifact,
-    opts.srcPath,
-    path.dirname(file),
-    base + ".js"
-  );
   const bundle = opts.bundle || {
     minify: true,
   };
+  // If srcPath is an absolute path, we need to convert it to an relative path
+  // and append it to the artifact path.
+  // Note: absolute "srcPath" should only be used for RDS's internal
+  //       migrator function. User provided "srcPath" should always be
+  //       relative path.
+  const target = path.join(
+    artifact,
+    absolutePathToRelativePath(opts.srcPath),
+    path.dirname(file),
+    base + ".js"
+  );
   const config: esbuild.BuildOptions = {
     loader: bundle.loader,
     minify: bundle.minify,
@@ -105,19 +111,40 @@ export const NodeHandler: Definition<Bundle> = (opts) => {
     entryPoints: [path.join(opts.srcPath, file)],
     bundle: opts.bundle !== false,
     external: [
-      "aws-sdk",
+      ...(bundle.format === "esm" ? [] : ["aws-sdk"]),
       ...(bundle.externalModules || []),
       ...(bundle.nodeModules || []),
     ],
+    mainFields:
+      bundle.format === "esm" ? ["module", "main"] : ["main", "module"],
+    sourcemap: true,
     platform: "node",
-    target: "node14",
-    format: "cjs",
+    ...(bundle.format === "esm"
+      ? {
+          target: "esnext",
+          format: "esm",
+          banner: {
+            js: [
+              `import { createRequire as topLevelCreateRequire } from 'module'`,
+              `const require = topLevelCreateRequire(import.meta.url)`,
+            ].join("\n"),
+          },
+        }
+      : {
+          target: "node14",
+          format: "cjs",
+        }),
     outfile: target,
   };
 
   const plugins = bundle.esbuildConfig?.plugins
     ? path.join(opts.root, bundle.esbuildConfig.plugins)
     : undefined;
+  if (plugins && !fs.existsSync(plugins)) {
+    throw new Error(
+      `Cannot find an esbuild plugins file at: ${path.resolve(plugins)}`
+    );
+  }
 
   return {
     shouldBuild: (files: string[]) => {
@@ -131,9 +158,6 @@ export const NodeHandler: Definition<Bundle> = (opts) => {
       return result;
     },
     build: async () => {
-      fs.removeSync(artifact);
-      fs.mkdirpSync(artifact);
-      writePackageJson(artifact);
       const existing = BUILD_CACHE[opts.id];
 
       try {
@@ -142,17 +166,20 @@ export const NodeHandler: Definition<Bundle> = (opts) => {
           BUILD_CACHE[opts.id] = result;
           return [];
         }
+        fs.removeSync(artifact);
+        fs.mkdirpSync(artifact);
 
         const result = await esbuild.build({
           ...config,
-          sourcemap: "inline",
           plugins: plugins ? require(plugins) : undefined,
           metafile: true,
           minify: false,
           incremental: true,
         });
+        fs.writeJSONSync(path.join(artifact, "package.json"), {
+          type: bundle.format === "esm" ? "module" : "commonjs",
+        });
         BUILD_CACHE[opts.id] = result;
-        removePackageJson(artifact);
         return [];
       } catch (e: any) {
         return (e as esbuild.BuildResult).errors.map((e) => ({
@@ -176,7 +203,6 @@ export const NodeHandler: Definition<Bundle> = (opts) => {
           const config = ${JSON.stringify({
             ...config,
             metafile: true,
-            sourcemap: "external",
             plugins,
           })}
           try {
@@ -193,9 +219,11 @@ export const NodeHandler: Definition<Bundle> = (opts) => {
       `;
       fs.removeSync(artifact);
       fs.mkdirpSync(artifact);
-      writePackageJson(artifact);
-      const builder = path.join(artifact, "builder.js");
+      const builder = path.join(artifact, "builder.cjs");
       fs.writeFileSync(builder, script);
+      fs.writeJSONSync(path.join(artifact, "package.json"), {
+        type: bundle.format === "esm" ? "module" : "commonjs",
+      });
       const result = spawn.sync("node", [builder], {
         stdio: "pipe",
       });
@@ -208,7 +236,6 @@ export const NodeHandler: Definition<Bundle> = (opts) => {
         );
       }
 
-      removePackageJson(artifact);
       fs.removeSync(builder);
 
       runBeforeInstall(opts.srcPath, artifact, bundle);
@@ -217,12 +244,16 @@ export const NodeHandler: Definition<Bundle> = (opts) => {
 
       runAfterBundling(opts.srcPath, artifact, bundle);
 
-      // Remove sourcemaps if they weren't moved by hooks
-      fs.removeSync(target + ".map");
-
+      // If handler is an absolute path, we need to convert it to an relative
+      // path. This is because the Lambda's handler path always needs to be
+      // an relative path.
+      // Note: absolute "srcPath" should only be used for RDS's internal
+      //       migrator function. User provided "srcPath" should always be
+      //       relative path.
+      const handler = path.join(opts.srcPath, opts.handler).replace(/\\/g, "/");
       return {
         directory: artifact,
-        handler: path.join(opts.srcPath, opts.handler).replace(/\\/g, "/"),
+        handler: absolutePathToRelativePath(handler),
       };
     },
     run: {
@@ -311,7 +342,8 @@ function installNodeModules(
   // Create dummy package.json, copy lock file if any and then install
   const outputPath = path.join(targetPath, "package.json");
   fs.ensureFileSync(outputPath);
-  fs.writeJsonSync(outputPath, { dependencies });
+  const existing = fs.readJsonSync(outputPath) || {};
+  fs.writeJsonSync(outputPath, { ...existing, dependencies });
   if (lockFile) {
     fs.copySync(path.join(srcPath, lockFile), path.join(targetPath, lockFile));
   }
@@ -429,14 +461,13 @@ function runAfterBundling(srcPath: string, buildPath: string, bundle: Bundle) {
   }
 }
 
-function writePackageJson(dir: string) {
-  // write package.json that marks the build dir scripts as being commonjs
-  // better would be to use .cjs endings for the scripts or output ESM
-  const buildPackageJsonPath = path.join(dir, "package.json");
-  fs.writeFileSync(buildPackageJsonPath, JSON.stringify({ type: "commonjs" }));
-}
+function absolutePathToRelativePath(absolutePath: string): string {
+  if (!path.isAbsolute(absolutePath)) {
+    return absolutePath;
+  }
 
-function removePackageJson(dir: string) {
-  const buildPackageJsonPath = path.join(dir, "package.json");
-  fs.removeSync(buildPackageJsonPath);
+  // For win32: root for D:\\path\\to\\dir is D:\\
+  // For posix: root for /path/to/dir is /
+  const { root } = path.parse(absolutePath);
+  return absolutePath.substring(root.length);
 }

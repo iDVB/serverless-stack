@@ -1,6 +1,15 @@
 import { memo, useEffect, useRef, useState } from "react";
+import { CgRedo } from "react-icons/cg";
 import { Link } from "react-router-dom";
-import { Anchor, Badge, JsonView, Row, Spacer, Stack } from "~/components";
+import {
+  Anchor,
+  Badge,
+  Button,
+  JsonView,
+  Row,
+  Spacer,
+  Stack,
+} from "~/components";
 import { useFunctionInvoke } from "~/data/aws";
 import { styled } from "~/stitches.config";
 import type { Invocation } from "../../../../../core/src/local/router";
@@ -16,6 +25,7 @@ const InvocationRoot = styled("div", {
   width: "100%",
   overflow: "hidden",
   position: "relative",
+  fontSize: "$sm",
 });
 
 const InvocationMask = styled("div", {
@@ -33,7 +43,7 @@ export const InvocationRow = memo((props: Props) => {
   const observer = useRef(
     new ResizeObserver((entries) => {
       const { height } = entries[0].contentRect;
-      setHeight(height + 40);
+      setHeight(height + 80);
     })
   );
 
@@ -57,6 +67,15 @@ export const InvocationRow = memo((props: Props) => {
             : "300ms all",
       }}
     >
+      <Row alignHorizontal="justify" alignVertical="center">
+        <Row alignVertical="center">
+          <Status invocation={props.invocation} />
+          <Spacer horizontal="md" />
+          <Source {...props} />
+        </Row>
+        <Replay invocation={props.invocation} metadata={props.metadata} />
+      </Row>
+      <Spacer vertical="sm" />
       <Row
         ref={ref}
         style={{
@@ -64,14 +83,6 @@ export const InvocationRow = memo((props: Props) => {
         }}
         alignVertical="start"
       >
-        {props.showSource && (
-          <>
-            <Source {...props} />
-            <Spacer horizontal="lg" />
-          </>
-        )}
-        <Status invocation={props.invocation} />
-        <Spacer horizontal="lg" />
         <Logs metadata={props.metadata} invocation={props.invocation} />
       </Row>
       <InvocationMask />
@@ -79,12 +90,13 @@ export const InvocationRow = memo((props: Props) => {
   );
 });
 
-const SourceRoot = styled(Anchor, {
+const SourceRoot = styled("div", {
   wordWrap: "break-word",
   width: 150,
   fontSize: "$sm",
   flexShrink: 0,
   lineHeight: 1.5,
+  flexGrow: 1,
 });
 
 function Source(props: Props) {
@@ -94,17 +106,19 @@ function Source(props: Props) {
     return props.metadata.id;
   })();
   return (
-    <SourceRoot
-      as={Link}
-      to={`../functions/${props.metadata.stack}/${props.metadata.addr}`}
-    >
-      {content}
+    <SourceRoot>
+      <Anchor
+        as={Link}
+        to={`../functions/${props.metadata.stack}/${props.metadata.addr}`}
+      >
+        {content}
+      </Anchor>
     </SourceRoot>
   );
 }
 
 const StatusRoot = styled("div", {
-  width: 100,
+  width: 120,
   flexShrink: 0,
   "& > *": {
     width: "100%",
@@ -208,7 +222,10 @@ function Logs(props: LogsProps) {
     <LogsRoot>
       <LogRow>
         <LogTimestamp>
-          {new Date(props.invocation.times.start).toISOString().split("T")[1]}
+          {new Date(props.invocation.times.start)
+            .toISOString()
+            .split("T")[1]
+            .substring(0, 12)}
         </LogTimestamp>
         {typeof props.invocation.request === "string" ? (
           "Request: " + props.invocation.request
@@ -217,14 +234,16 @@ function Logs(props: LogsProps) {
             <JsonView.Root>
               <JsonView.Content name="Request" src={props.invocation.request} />
             </JsonView.Root>
-            <Replay invocation={props.invocation} metadata={props.metadata} />
           </Row>
         )}
       </LogRow>
       {props.invocation.logs.map((item) => (
         <LogRow key={item.timestamp}>
           <LogTimestamp>
-            {new Date(item.timestamp).toISOString().split("T")[1]}
+            {new Date(item.timestamp)
+              .toISOString()
+              .split("T")[1]
+              .substring(0, 12)}
           </LogTimestamp>
           <LogMessage>{item.message}</LogMessage>
           <LogDuration>
@@ -235,7 +254,10 @@ function Logs(props: LogsProps) {
       {props.invocation.response?.type === "failure" && (
         <LogRow>
           <LogTimestamp>
-            {new Date(props.invocation.times.end!).toISOString().split("T")[1]}
+            {new Date(props.invocation.times.end!)
+              .toISOString()
+              .split("T")[1]
+              .substring(0, 12)}
           </LogTimestamp>
           <LogStackTrace>
             {props.invocation.response.error.stackTrace.length === 0 &&
@@ -249,7 +271,10 @@ function Logs(props: LogsProps) {
       {props.invocation.response?.type === "success" && (
         <LogRow>
           <LogTimestamp>
-            {new Date(props.invocation.times.end!).toISOString().split("T")[1]}
+            {new Date(props.invocation.times.end!)
+              .toISOString()
+              .split("T")[1]
+              .substring(0, 12)}
           </LogTimestamp>
           {typeof props.invocation.response.data !== "object" ||
           props.invocation.response.data === null ? (
@@ -276,7 +301,9 @@ type ReplayProps = {
 export function Replay(props: ReplayProps) {
   const invoke = useFunctionInvoke();
   return (
-    <Anchor
+    <Button
+      color="ghost"
+      size="xs"
       onClick={() =>
         invoke.mutate({
           arn: props.metadata.data.arn,
@@ -284,7 +311,8 @@ export function Replay(props: ReplayProps) {
         })
       }
     >
+      <CgRedo />
       Replay
-    </Anchor>
+    </Button>
   );
 }

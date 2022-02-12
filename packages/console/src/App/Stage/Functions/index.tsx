@@ -53,7 +53,7 @@ const FunctionVia = styled("div", {
 const Content = styled("div", {
   height: "100%",
   overflow: "hidden",
-  overflowY: "scroll",
+  overflowY: "auto",
   flexGrow: 1,
 });
 
@@ -93,7 +93,10 @@ export function Functions() {
             <Route
               path="*"
               element={
-                <Navigate to={`${functions[0].stack}/${functions[0].addr}`} />
+                <Navigate
+                  replace
+                  to={`${functions[0].stack}/${functions[0].addr}`}
+                />
               }
             />
           )}

@@ -46,6 +46,9 @@ npx sst remove
 
 # Update SST and matching CDK versions
 npx sst update
+
+# Launch console
+npx sst console
 ```
 
 #### Change the default stage and region
@@ -145,6 +148,34 @@ In addition to the [global options](#global-options) below, the `deploy` command
 - `--rollback`
 
   By default `sst deploy` enables rollback on failure. This is so that any mistakes do not leave your infrastructure in an inconsistent state. To override this behavior, pass in `--rollback=false`
+
+### `console`
+
+This command launches the [**SST Console**](https://console.serverless-stack.com) to manage stages that are not running locally. It uses your local credentials (or the ones you specify) to make calls to AWS.
+
+For more context; if you run the [`sst start`](#start) and fire up the console, you'll see the logs for the local invocations of your functions. Whereas with the `sst console` command, you'll see their [CloudWatch](https://aws.amazon.com/cloudwatch/) logs instead. This allows you to use the console against your production or staging environments.
+
+:::note
+This command does not instrument your code. It simply uses your local credentials to make calls to AWS.
+:::
+
+#### Options
+
+- `--stage`
+
+The stage you want connect to. If this is not specified, it will default to your local stage.
+
+Connecting to a different stage.
+
+```bash
+npx sst console --stage=staging
+```
+
+Using a different aws profile if your stage is in another AWS account.
+
+```bash
+AWS_PROFILE=acme-production npx sst console --stage=production
+```
 
 ### `remove [stack]`
 

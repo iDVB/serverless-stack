@@ -4,6 +4,7 @@ const path = require("path");
 const array = require("../lib/array");
 const fs = require("fs-extra");
 const chalk = require("chalk");
+const readline = require("readline");
 const detect = require("detect-port-alt");
 
 const {
@@ -28,6 +29,7 @@ const {
   writeOutputsFile,
 } = require("./util/cdkHelpers");
 const objectUtil = require("../lib/object");
+const spawn = require("cross-spawn");
 
 let isConsoleEnabled = false;
 // This flag is currently used by the "sst.Script" construct to make the "BuiltAt"
@@ -143,6 +145,7 @@ module.exports = async function (argv, config, cliInfo) {
   });
 
   const local = useLocalServer({
+    live: true,
     port: await chooseServerPort(13557),
     app: config.name,
     stage: config.stage,
@@ -179,7 +182,7 @@ module.exports = async function (argv, config, cliInfo) {
   server.listen();
 
   const watcher = new Runtime.Watcher();
-  watcher.reload(paths.appPath, config);
+  watcher.reload(paths.appPath);
 
   const functionBuilder = useFunctionBuilder({
     root: paths.appPath,
@@ -240,10 +243,13 @@ module.exports = async function (argv, config, cliInfo) {
     });
     if (state.value.idle) {
       if (state.value.idle === "unchanged") {
+        await Promise.all(funcs.map((f) => server.drain(f).catch(() => {})));
+        funcs.splice(0, funcs.length, ...State.Function.read(paths.appPath));
         clientLogger.info(chalk.grey("Stacks: No changes to deploy."));
       }
       if (state.value.idle === "deployed") {
-        watcher.reload(paths.appPath, config);
+        clientLogger.info(chalk.grey("Stacks: Deploying completed."));
+        watcher.reload(paths.appPath);
         functionBuilder.reload();
         // TODO: Move all this to functionBuilder state machine
         await Promise.all(funcs.map((f) => server.drain(f).catch(() => {})));
@@ -266,8 +272,13 @@ module.exports = async function (argv, config, cliInfo) {
   });
   local.onDeploy.add(() => stacksBuilder.send("TRIGGER_DEPLOY"));
 
-  if (!IS_TEST)
+  if (!IS_TEST) {
+    readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
     process.stdin.on("data", () => stacksBuilder.send("TRIGGER_DEPLOY"));
+  }
 
   // Handle requests from udp or ws
   async function handleRequest(req) {
@@ -369,6 +380,36 @@ module.exports = async function (argv, config, cliInfo) {
 
   bridge.onRequest(handleRequest);
   ws.onRequest(handleRequest);
+
+  // TODO: Figure out how to abstract this
+  const data = fs.readJSONSync(State.resolve(paths.appPath, "constructs.json"));
+  for (let construct of data) {
+    if (
+      construct.type === "Api" &&
+      construct.local &&
+      construct.local.codegen
+    ) {
+      const proc = spawn("npx", [
+        "graphql-codegen",
+        "--watch",
+        "-c",
+        construct.local.codegen,
+      ]);
+      proc.stdout.on("data", (data) => {
+        const line = data.toString();
+        clientLogger.debug(line);
+        if (line.includes("Parse configuration [started]"))
+          clientLogger.info(chalk.grey("Running GraphQL code generation..."));
+        if (line.includes("Generate outputs [failed]"))
+          clientLogger.info(chalk.red("Failed to load GraphQL schema"));
+        if (line.includes("with") && line.includes("error"))
+          clientLogger.info(chalk.red(line));
+        if (line.includes("Generate outputs [completed]"))
+          clientLogger.info(chalk.grey("Finished GraphQL code generation"));
+      });
+    }
+  }
+
   clientLogger.info(
     `SST Console: https://console.serverless-stack.com/${config.name}/${
       config.stage
@@ -395,9 +436,16 @@ async function deployDebugStack(config, cliInfo) {
   const stackName = `${config.stage}-${config.name}-debug-stack`;
   const cdkOptions = {
     ...cliInfo.cdkOptions,
-    app: `node bin/index.js ${stackName} ${config.stage} ${config.region} ${
-      paths.appPath
-    } ${State.stacksPath(paths.appPath)}`,
+    app: [
+      "node",
+      "bin/index.js",
+      stackName,
+      config.stage,
+      config.region,
+      // wrap paths in quotes to handle spaces in user's appPath
+      `"${paths.appPath}"`,
+      `"${State.stacksPath(paths.appPath)}"`,
+    ].join(" "),
     output: "cdk.out",
   };
 

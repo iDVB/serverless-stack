@@ -1,11 +1,6 @@
 import * as path from "path";
 import * as fs from "fs-extra";
-import {
-  hasResource,
-  objectLike,
-  stringLike,
-  ANY,
-} from "./helper";
+import { hasResource, objectLike, stringLike, ANY } from "./helper";
 import { App, Api, Stack, ReactStaticSite } from "../src";
 
 /////////////////////////////
@@ -112,9 +107,8 @@ test("constructor: default fileOptions for cache control", async () => {
       },
     ],
     DestinationBucketName: {
-      Ref: "SiteBucket978D4AEB",
+      Ref: "SiteS3Bucket43E5BB2F",
     },
-    DestinationBucketKeyPrefix: stringLike(/deploy-.*/),
     FileOptions: [
       [
         "--exclude",

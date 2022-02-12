@@ -166,7 +166,7 @@ test("constructor: liveDev prop defaults to true", async () => {
         SST_DEBUG_SRC_HANDLER: "test/lambda.handler",
         SST_DEBUG_ENDPOINT: "placeholder",
         SST_DEBUG_BUCKET_NAME: "placeholder",
-        SST_FUNCTION_ID: "02056f69",
+        SST_FUNCTION_ID: "dev-my-app-stack-Function",
         AWS_NODEJS_CONNECTION_REUSE_ENABLED: "1",
       },
     },
@@ -190,7 +190,20 @@ test("constructor: handler not exist", async () => {
   }).toThrow(/Cannot find a handler file for "test\/random.handler"/);
 });
 
-test("constructor: srcPath not set for python", async () => {
+test("constructor: node: srcPath absolute path", async () => {
+  const stack = new Stack(new App(), "stack");
+  const srcPath = path.resolve(".");
+  new Function(stack, "Function", {
+    srcPath,
+    handler: "test/lambda.handler",
+  });
+  const srcPathWithoutRoot = srcPath.substring(path.parse(srcPath).root.length);
+  hasResource(stack, "AWS::Lambda::Function", {
+    Handler: `${srcPathWithoutRoot.split("\\").join("/")}/test/lambda.handler`,
+  });
+});
+
+test("constructor: python: srcPath not set", async () => {
   const stack = new Stack(new App(), "stack");
   expect(() => {
     new Function(stack, "Function", {
@@ -200,7 +213,7 @@ test("constructor: srcPath not set for python", async () => {
   }).toThrow(/Cannot set the "srcPath" to the project root/);
 });
 
-test("srcPath: project-root-python", async () => {
+test("constructor: python: srcPath is project root", async () => {
   const stack = new Stack(new App(), "stack");
   expect(() => {
     new Function(stack, "Function", {
